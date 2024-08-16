@@ -1,0 +1,18 @@
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: r1
+spec:
+  replicas: 1
+  image: pivotalrabbitmq/rabbitmq:main
+  # rabbitmq:
+    # additionalConfig: |
+    #    log.console = true
+    #    log.console.level = debug
+    # auth_mechanisms.1 = AMQPLAIN
+    # advancedConfig: |
+    #   [
+    #       {rabbit, [
+    #           {auth_mechanisms, ['PLAIN']}
+    #       ]}
+    #   ].

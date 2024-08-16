@@ -10,10 +10,12 @@
 package resource
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -24,11 +26,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+var (
+	scheme = runtime.NewScheme()
+	log    = ctrl.Log.WithName("aaa-logger")
 )
 
 const (
 	ServerConfigMapName = "server-conf"
 	defaultRabbitmqConf = `
+anonymous_login_user = dave
 queue_master_locator = min-masters
 disk_free_limit.absolute = 2GB
 cluster_partition_handling = pause_minority
@@ -99,6 +108,25 @@ func (builder *ServerConfigMapBuilder) Update(object client.Object) error {
 
 	if _, err := defaultSection.NewKey("cluster_name", builder.Instance.Name); err != nil {
 		return err
+	}
+
+	rmqProperties := builder.Instance.Spec.Rabbitmq
+	log.Info("aaaa", "user config", rmqProperties.AdditionalConfig)
+	additionalConf, err := ini.Load([]byte(rmqProperties.AdditionalConfig))
+	if err != nil {
+		return errors.New("failed to load additionalConfig")
+	}
+	additionalConfSection := additionalConf.Section("")
+	additionalConfKeys := additionalConfSection.KeyStrings()
+	log.Info("aaaa", "keys", additionalConfKeys)
+	if !areAuthMechanismsConfigued(additionalConfKeys) {
+		log.Info("aaaa no auth mechs configured by user, adding default ...")
+		if _, err := defaultSection.NewKey("auth_mechanisms.1", "PLAIN"); err != nil {
+			return err
+		}
+		if _, err := defaultSection.NewKey("auth_mechanisms.2", "AMQPLAIN"); err != nil {
+			return err
+		}
 	}
 
 	userConfiguration := ini.Empty()
@@ -231,7 +259,6 @@ func (builder *ServerConfigMapBuilder) Update(object client.Object) error {
 
 	rmqConfBuffer.Reset()
 
-	rmqProperties := builder.Instance.Spec.Rabbitmq
 	if err := userConfiguration.Append([]byte(rmqProperties.AdditionalConfig)); err != nil {
 		return fmt.Errorf("failed to append spec.rabbitmq.additionalConfig: %w", err)
 	}
@@ -306,4 +333,13 @@ func removeHeadroom(memLimit int64) int64 {
 		return memLimit - 2*GiB
 	}
 	return memLimit - memLimit/5
+}
+
+func areAuthMechanismsConfigued(keys []string) bool {
+	for _, str := range keys {
+		if strings.HasPrefix(str, "auth_mechanisms") {
+			return true
+		}
+	}
+	return false
 }
